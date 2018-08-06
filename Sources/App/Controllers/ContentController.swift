@@ -1,35 +1,119 @@
 import Vapor
+import Fluent
 import FluentMySQL
 
+struct ItemInput: Content {
+    var id: Int?
+    
+    var title: String
+    var slug: String?
+    
+    var body: String?
+    var type: String
+    
+    var language: String?
+    
+    var publishedAt: Date?
+    
+    /// Creates a new `Item`.
+    init(_ title: String, type: String) {
+        self.title = title
+        self.type = type
+    }
+    
+    func makeClass(userId: Int) -> Item {
+        let item = Item(self.title, type: self.type, userId: userId)
+        item.slug = self.slug
+        item.body = self.body
+        item.language = self.language
+        item.publishedAt = self.publishedAt
+        return item
+    }
+}
+
+struct ItemUpdate: Content {
+    var id: Int
+    var title: String?
+    var slug: String?
+    var body: String?
+    var language: String?
+    var publishedAt: Date?
+}
 
 final class ContentController: RouteCollection {
     
     func boot(router: Router) {
         router.get(String.parameter, use: index)
         router.get("byId", String.parameter, use: byId)
-        /*router.get("attributes", use: attributes)
-        
-        router.post(NewUserB    ody.self, at: "profile", use: save)
-        router.post(AttributeBody.self, at: "attributes", use: createAttribute)
-        
-        router.delete("attribute", use: deleteAttributes)
-        router.delete("user", use: delete)*/
+        router.post(ItemInput.self, at: "item", use: createItem)
+        router.patch(ItemUpdate.self, at: "item", use: updateItem)
+        router.delete("item", Int.parameter, use: deleteItem)
+        router.get("item", Int.parameter, use: getItem)
+    }
+    
+    func createItem(_ req: Request, item: ItemInput) throws -> Future<Item> {
+        return item.makeClass(userId: 1).create(on: req)
+    }
+    
+    func deleteItem(_ req: Request) throws -> Future<HTTPResponseStatus> {
+        let id = try req.parameters.next(Int.self)
+        return Item.find(id, on: req).flatMap(to: HTTPResponseStatus.self) { item in
+            if item == nil {
+                throw Abort(.badRequest, reason: "No model with id \(id) found")
+            }
+            return item!.delete(on: req).map(to: HTTPResponseStatus.self) { _ in
+                return HTTPStatus.ok
+            }
+        }
+    }
+    
+    func updateItem(_ req: Request, itemUpdate: ItemUpdate) throws -> Future<Item> {
+        return Item.find(itemUpdate.id, on: req).flatMap(to: Item.self) { item in
+            if item == nil {
+                throw Abort(.badRequest, reason: "No model with id \(itemUpdate.id) found")
+            }
+            if let title = itemUpdate.title {
+                item!.title = title
+            }
+            if let slug = itemUpdate.slug {
+                item!.slug = slug
+            }
+            if let body = itemUpdate.body {
+                item!.body = body
+            }
+            if let language = itemUpdate.language {
+                item!.language = language
+            }
+            if let publishedAt = itemUpdate.publishedAt {
+                item!.publishedAt = publishedAt
+            }
+            return item!.save(on: req)
+        }
     }
     
     func byId(_ req: Request) throws -> Future<[Item]> {
         let type = try req.parameters.next(String.self)
-        let ids_ = ""
+        var ids_ = ""
         
         do {
             ids_ = try req.query.get(String.self, at: "ids")
         }
         catch {}
         
-        let ids = ids_.split(separator: ",")
-        
-        return Item.query(on: req).filter(\.type == type).filter(\Item.id ~~ ids).all()
+        let idsString = ids_.split(separator: ",")
+        let ids = idsString.map { Int($0) ?? 0 }
+        return Item.query(on: req).filter(\.type == type).filter(\.id ~~ ids).all()
     }
     
+    func getItem(_ req: Request) throws -> Future<Item> {
+        let id = try req.parameters.next(Int.self)
+        return Item.find(id, on: req).map(to: Item.self) { item in
+            if item == nil {
+                throw Abort(.badRequest, reason: "No model with id \(id) found")
+            }
+            return item!
+        }
+    }
 
     func index(_ req: Request) throws -> Future<[Item]> {
         let type = try req.parameters.next(String.self)
@@ -66,7 +150,18 @@ final class ContentController: RouteCollection {
         if ascending == false {
             sortingType = MySQLDirection.descending
         }
-        var sortByVar = \Item.publishedAt
-        return Item.query(on: req).filter(\.type == type).range(offset..<(offset+limit)).sort(sortByVar, sortingType).all()
+        var query = Item.query(on: req).filter(\.type == type).range(offset..<(offset+limit))
+        
+        switch sortBy {
+        case "userId":
+            query = query.sort(\Item.userId, sortingType)
+            break
+        case "title":
+            query = query.sort(\Item.title, sortingType)
+            break
+        default:
+            query = query.sort(\Item.publishedAt, sortingType)
+        }
+        return query.all()
     }
 }

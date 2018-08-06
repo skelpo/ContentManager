@@ -1,9 +1,14 @@
 import FluentMySQL
 import Vapor
+import Fluent
 
 
 final class Item: Content, MySQLModel, Migration, Parameter {
     static let entity: String = "items"
+    static let createdAtKey: TimestampKey? = \.createdAt
+    static let updatedAtKey: TimestampKey? = \.updatedAt
+    static let deletedAtKey: TimestampKey? = \.deletedAt
+    
     /// The unique identifier for this `Item`.
     var id: Int?
 
@@ -18,6 +23,7 @@ final class Item: Content, MySQLModel, Migration, Parameter {
     
     var deletedAt: Date?
     var createdAt: Date?
+    var updatedAt: Date?
     var publishedAt: Date?
     
     var userId: Int
