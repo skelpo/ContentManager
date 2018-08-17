@@ -45,7 +45,7 @@ struct MediaAttachmentInput: Content {
     var mediaUrl: String
 }
 
-struct ItemOutput {
+struct ItemOutput: Content {
     var id: Int?
     var title: String?
     var slug: String?
@@ -65,6 +65,12 @@ struct ItemOutput {
         self.body = item.body
         self.userId = item.userId
         self.type = item.type
+        self.slug = item.slug
+        self.language = item.language
+        self.deletedAt = item.deletedAt
+        self.createdAt = item.createdAt
+        self.updatedAt = item.updatedAt
+        self.publishedAt = item.publishedAt
     }
 }
 
@@ -89,8 +95,10 @@ final class ContentController: RouteCollection {
         }
     }
     
-    func createItem(_ req: Request, item: ItemInput) throws -> Future<Item> {
-        return item.makeClass(userId: 1).create(on: req)
+    func createItem(_ req: Request, item: ItemInput) throws -> Future<ItemOutput> {
+        return item.makeClass(userId: 1).create(on: req).flatMap(to: ItemOutput.self) { item in
+            return try self.output(item, req)
+        }
     }
     func attachMedia(_ req: Request, input: MediaAttachmentInput) throws -> Future<Media> {
         return Item.find(input.contentId, on: req).flatMap(to: Media.self) { item in
@@ -127,8 +135,8 @@ final class ContentController: RouteCollection {
         }
     }
     
-    func updateItem(_ req: Request, itemUpdate: ItemUpdate) throws -> Future<Item> {
-        return Item.find(itemUpdate.id, on: req).flatMap(to: Item.self) { item in
+    func updateItem(_ req: Request, itemUpdate: ItemUpdate) throws -> Future<ItemOutput> {
+        return Item.find(itemUpdate.id, on: req).flatMap(to: ItemOutput.self) { item in
             if item == nil {
                 throw Abort(.badRequest, reason: "No model with id \(itemUpdate.id) found")
             }
@@ -147,11 +155,13 @@ final class ContentController: RouteCollection {
             if let publishedAt = itemUpdate.publishedAt {
                 item!.publishedAt = publishedAt
             }
-            return item!.save(on: req)
+            return item!.save(on: req).flatMap(to: ItemOutput.self) { item in
+                return try self.output(item, req)
+            }
         }
     }
     
-    func byId(_ req: Request) throws -> Future<[Item]> {
+    func byId(_ req: Request) throws -> Future<[ItemOutput]> {
         let type = try req.parameters.next(String.self)
         var ids_ = ""
         
@@ -162,20 +172,22 @@ final class ContentController: RouteCollection {
         
         let idsString = ids_.split(separator: ",")
         let ids = idsString.map { Int($0) ?? 0 }
-        return Item.query(on: req).filter(\.type == type).filter(\.id ~~ ids).all()
+        return Item.query(on: req).filter(\.type == type).filter(\.id ~~ ids).all().flatMap(to: [ItemOutput].self) { items in
+            return try items.map { try self.output($0, req) }.flatten(on: req)
+        }
     }
     
-    func getItem(_ req: Request) throws -> Future<Item> {
+    func getItem(_ req: Request) throws -> Future<ItemOutput> {
         let id = try req.parameters.next(Int.self)
-        return Item.find(id, on: req).map(to: Item.self) { item in
+        return Item.find(id, on: req).flatMap(to: ItemOutput.self) { item in
             if item == nil {
                 throw Abort(.badRequest, reason: "No model with id \(id) found")
             }
-            return item!
+            return try self.output(item!, req)
         }
     }
 
-    func index(_ req: Request) throws -> Future<[Item]> {
+    func index(_ req: Request) throws -> Future<[ItemOutput]> {
         let type = try req.parameters.next(String.self)
         var sortBy = "publishedAt"
         var ascending = false
@@ -222,6 +234,8 @@ final class ContentController: RouteCollection {
         default:
             query = query.sort(\Item.publishedAt, sortingType)
         }
-        return query.all()
+        return query.all().flatMap(to: [ItemOutput].self) { items in
+            return try items.map { try self.output($0, req) }.flatten(on: req)
+        }
     }
 }
