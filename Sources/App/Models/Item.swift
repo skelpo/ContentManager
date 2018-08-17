@@ -34,10 +34,4 @@ final class Item: Content, MySQLModel, Migration, Parameter {
         self.userId = userId
         self.type = type
     }
-    
-    /// Create a query that gets all the attributes belonging to a user.
-    func media(on connection: DatabaseConnectable) -> QueryBuilder<Media.Database, Media> {
-        // Return an `Attribute` query that filters on the `userId` field.
-        return Media.query(on: connection).filter(\.itemId == self.id!)
-    }
 }

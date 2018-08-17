@@ -40,19 +40,79 @@ struct ItemUpdate: Content {
     var publishedAt: Date?
 }
 
+struct MediaAttachmentInput: Content {
+    var contentId: Int
+    var mediaUrl: String
+}
+
+struct ItemOutput {
+    var id: Int?
+    var title: String?
+    var slug: String?
+    var body: String?
+    var type: String
+    var language: String?
+    var deletedAt: Date?
+    var createdAt: Date?
+    var updatedAt: Date?
+    var publishedAt: Date?
+    var userId: Int
+    var media:[Media] = []
+    
+    init(_ item: Item) {
+        self.id = item.id
+        self.title = item.title
+        self.body = item.body
+        self.userId = item.userId
+        self.type = item.type
+    }
+}
+
 final class ContentController: RouteCollection {
     
     func boot(router: Router) {
         router.get(String.parameter, use: index)
         router.get("byId", String.parameter, use: byId)
         router.post(ItemInput.self, at: "item", use: createItem)
+        router.post(MediaAttachmentInput.self, at: "attach", use: attachMedia)
         router.patch(ItemUpdate.self, at: "item", use: updateItem)
         router.delete("item", Int.parameter, use: deleteItem)
+        router.delete("media", Int.parameter, use: deleteMedia)
         router.get("item", Int.parameter, use: getItem)
+    }
+    
+    func output(_ item: Item, _ req: Request) throws -> Future<ItemOutput> {
+        var out = ItemOutput(item)
+        return Media.query(on: req).filter(\.itemId == item.id!).all().map(to: ItemOutput.self) { media in
+            out.media = media
+            return out
+        }
     }
     
     func createItem(_ req: Request, item: ItemInput) throws -> Future<Item> {
         return item.makeClass(userId: 1).create(on: req)
+    }
+    func attachMedia(_ req: Request, input: MediaAttachmentInput) throws -> Future<Media> {
+        return Item.find(input.contentId, on: req).flatMap(to: Media.self) { item in
+            if item == nil {
+                throw Abort(.badRequest, reason: "No model with id \(input.contentId) found")
+            }
+            let media = Media(itemId: item!.id!)
+            media.url = input.mediaUrl
+            return media.create(on: req)
+        }
+        
+    }
+    func deleteMedia(_ req: Request) throws -> Future<HTTPResponseStatus> {
+        let id = try req.parameters.next(Int.self)
+        return Media.find(id, on: req).flatMap(to: HTTPResponseStatus.self) { media in
+            if media == nil {
+                throw Abort(.badRequest, reason: "No media with id \(id) found")
+            }
+            return media!.delete(on: req).map(to: HTTPResponseStatus.self) { _ in
+                return HTTPStatus.ok
+            }
+        }
     }
     
     func deleteItem(_ req: Request) throws -> Future<HTTPResponseStatus> {
